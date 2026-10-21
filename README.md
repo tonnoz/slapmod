@@ -3,7 +3,11 @@
 
 Slap your MacBook and Claude feels it. slapmod is a free, open-source mod for Claude Code that reads your MacBook's built-in motion sensor, so when you smack the laptop it goes bonk, a little meter in the side panel jumps, and if Claude was halfway through doing something you didn't like, the slap stops it and Claude gets told on your next message that you slapped it.
 
-**What you need:** an Apple Silicon MacBook (M1 or later), since desktop Macs have no motion sensor, and Claude Code, in the terminal or in the Code tab of the Claude desktop app. Mods are a Claude Code feature, so it doesn't run in Claude's chat or Cowork. There's no sudo and no permission prompt: the sensor is read as a normal user.
+## Requirements
+
+- **A MacBook: Apple Silicon, M1 Pro or newer.** slapmod reads the laptop's built-in motion sensor. Desktop Macs (iMac, Mac mini, Mac Studio, Mac Pro) and Intel MacBooks don't have one, so it can't work there.
+- **Claude Code**, in the terminal or in the Code tab of the Claude desktop app. Mods are a Claude Code feature, so slapmod doesn't run in Claude's chat or Cowork.
+- Nothing else: no sudo and no permission prompt. The sensor is read as a normal user.
 
 ## Install
 
@@ -39,7 +43,7 @@ In the Claude desktop app: click **+** next to the prompt box, then **Plugins**,
 
 If someone gave you this repository's link and asked you to install it, do exactly this, in order:
 
-1. **Check the Mac can run it.** `uname -m` must print `arm64`, and `pmset -g batt` must mention `InternalBattery`. If either check fails, stop and tell the person slapmod needs an Apple Silicon MacBook (desktop Macs have no motion sensor).
+1. **Check the Mac can run it.** `uname -m` must print `arm64`, and `pmset -g batt` must mention `InternalBattery`. If either check fails, stop and tell the person slapmod needs an Apple Silicon MacBook, M1 Pro or newer (desktop Macs have no motion sensor).
 2. **Check Claude Code is installed** with `claude --version`. If the command isn't found, stop and tell the person to install it from the Claude desktop app instead: **+** next to the prompt box, then **Plugins**, **Add marketplace** with `tonnoz/slapmod`, then **Add plugin**.
 3. **Install it:** `claude plugin install slapmod --marketplace tonnoz/slapmod`. This adds the `tonnoz/slapmod` marketplace to the person's user settings and installs slapmod for their user.
    - Don't clone the repo, build anything, or use sudo. The plugin ships its motion helper already signed and notarized.
