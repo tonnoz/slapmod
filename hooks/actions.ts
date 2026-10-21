@@ -17,7 +17,7 @@ import {
   isEcho,
   parseCommandText,
   parseSlapArgs,
-  pickVoiceLine,
+  pickOther,
   plural,
   settingValue,
   slapNote,
@@ -70,12 +70,22 @@ const SLAPMAC_PROCESS = 'slapmac'
 /** Where a prompt the person typed comes from: the terminal, a remote client, the desktop app. */
 const PERSON_ORIGINS = ['composer', 'bridge', 'sdk']
 
-const CLIPS: Record<Strength, string> = {
-  light: 'sounds/bonk-light.wav',
-  solid: 'sounds/bonk.wav',
-  hard: 'sounds/bonk-hard.wav',
+type Clip = { asset: string; ms: number }
+
+/** The bonks, by how hard the slap was, with how long each plays. */
+const BONKS: Record<Strength, Clip> = {
+  light: { asset: 'sounds/bonk-light.wav', ms: 180 },
+  solid: { asset: 'sounds/bonk.wav', ms: 280 },
+  hard: { asset: 'sounds/bonk-hard.wav', ms: 450 },
 }
-const CLIP_MS: Record<Strength, number> = { light: 180, solid: 280, hard: 450 }
+/** Five whip cracks, played in turn at random; the slap's strength sets the volume. */
+const WHIPS: readonly Clip[] = [
+  { asset: 'sounds/whip-1.mp3', ms: 1_000 },
+  { asset: 'sounds/whip-2.mp3', ms: 446 },
+  { asset: 'sounds/whip-3.mp3', ms: 586 },
+  { asset: 'sounds/whip-4.mp3', ms: 1_000 },
+  { asset: 'sounds/whip-5.mp3', ms: 892 },
+]
 const GESTURE_NAMES: Record<Gesture, string> = { single: 'slap', double: 'double slap' }
 
 type Queued = { writes: SettingWrite[]; tries: number }
@@ -92,12 +102,13 @@ function isActiveSession(value: unknown): value is ActiveSession {
 export async function play($: EngineInterface, strength: number): Promise<void> {
   const kind = strengthOf(strength)
   const now = await $.clock.now()
-  if (settings.sound === 'bonk') {
-    live.guard = { until: now + CLIP_MS[kind] + ECHO_TAIL_MS, strength }
-    await $.audio.play({ asset: CLIPS[kind] }, { gain: BASE_GAIN + STRENGTH_GAIN * strength })
+  if (settings.sound === 'bonk' || settings.sound === 'whip') {
+    const clip = settings.sound === 'bonk' ? BONKS[kind] : pickWhip()
+    live.guard = { until: now + clip.ms + ECHO_TAIL_MS, strength }
+    await $.audio.play({ asset: clip.asset }, { gain: BASE_GAIN + STRENGTH_GAIN * strength })
   }
   if (settings.sound === 'voice') {
-    const line = pickVoiceLine(live.lastVoice, Math.random())
+    const line = pickOther(live.lastVoice, VOICE_LINES.length, Math.random())
     live.lastVoice = line
     const clip = live.voices[line]
     if (clip !== undefined) {
@@ -136,6 +147,12 @@ function clipMs(base64: string): number {
   const bytes = base64.length * BASE64_BYTES_PER_CHAR - WAV_HEADER_BYTES
 
   return Math.round((Math.max(0, bytes) / VOICE_BYTES_PER_SECOND) * 1_000)
+}
+
+function pickWhip(): Clip {
+  live.lastWhip = pickOther(live.lastWhip, WHIPS.length, Math.random())
+
+  return WHIPS[live.lastWhip] ?? BONKS.solid
 }
 
 export async function playTest($: EngineInterface): Promise<void> {

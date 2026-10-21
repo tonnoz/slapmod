@@ -49,6 +49,7 @@ export const live: {
   /** The voice lines made ahead of time, by their place in VOICE_LINES. */
   voices: (VoiceClip | undefined)[]
   lastVoice: number
+  lastWhip: number
 } = {
   isPaneOpen: false,
   isSoundLeader: false,
@@ -62,6 +63,7 @@ export const live: {
   dialTimer: undefined,
   voices: [],
   lastVoice: -1,
+  lastWhip: -1,
 }
 
 export function readSensor($: EngineInterface): Promise<Sensor> {

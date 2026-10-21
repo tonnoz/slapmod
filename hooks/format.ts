@@ -21,7 +21,7 @@ const ECHO_RATIO = 0.7
 
 export const LEVELS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'] as const
 export const ACTIONS = ['stop', 'tell', 'command', 'prompt', 'off'] as const
-export const SOUNDS = ['bonk', 'voice', 'off'] as const
+export const SOUNDS = ['bonk', 'whip', 'voice', 'off'] as const
 export type Action = (typeof ACTIONS)[number]
 export type Sound = (typeof SOUNDS)[number]
 export type Gesture = 'single' | 'double'
@@ -167,12 +167,11 @@ export function dial(level: number): string {
   return '▮'.repeat(level) + '▯'.repeat(MAX_LEVEL - level)
 }
 
-/** A voice line other than the last one, from `random` in [0, 1). */
-export function pickVoiceLine(previous: number, random: number): number {
-  if (previous < 0 || previous >= VOICE_LINES.length) return Math.floor(random * VOICE_LINES.length)
-  const others = VOICE_LINES.length - 1
+/** One of `count` clips other than the last one played, from `random` in [0, 1). */
+export function pickOther(previous: number, count: number, random: number): number {
+  if (previous < 0 || previous >= count) return Math.floor(random * count)
 
-  return (previous + 1 + Math.floor(random * others)) % VOICE_LINES.length
+  return (previous + 1 + Math.floor(random * (count - 1))) % count
 }
 
 export function plural(count: number, one: string, many: string): string {
@@ -253,7 +252,7 @@ export function parseSlapArgs(args: string): SlapCommand {
     }
     case 'sound': {
       const sound = SOUNDS.find(one => one === rest[0])
-      if (sound === undefined) return { kind: 'error', message: 'The sound is bonk, voice or off.' }
+      if (sound === undefined) return { kind: 'error', message: 'The sound is bonk, whip, voice or off.' }
 
       return { kind: 'set', writes: [{ field: 'sound', value: sound }] }
     }

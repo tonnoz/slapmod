@@ -2,41 +2,49 @@
 
 Slap your MacBook and Claude feels it. slapmod is a free, open-source mod for Claude Code that reads your MacBook's built-in motion sensor, so when you smack the laptop it goes bonk, a little meter in the side panel jumps, and if Claude was halfway through doing something you didn't like, the slap stops it and Claude gets told on your next message that you slapped it.
 
-It runs in Claude Code, in the terminal and in the Code tab of the Claude desktop app. It doesn't run in Claude's chat or Cowork, because mods are a Claude Code feature, and it needs an Apple Silicon MacBook (M1 or later), because desktop Macs don't have a motion sensor.
+**What you need:** an Apple Silicon MacBook (M1 or later), since desktop Macs have no motion sensor, and Claude Code, in the terminal or in the Code tab of the Claude desktop app. Mods are a Claude Code feature, so it doesn't run in Claude's chat or Cowork. There's no sudo and no permission prompt: the sensor is read as a normal user.
 
 ## Install
 
-At the Claude Code prompt in a terminal:
+**The easy way:** paste this repo's link into Claude Code (or any coding agent on your Mac) and say "install this":
+
+```text
+Install this: https://github.com/tonnoz/slapmod
+```
+
+The agent follows the steps in [For AI agents](#for-ai-agents-install-steps) below.
+
+**Or do it yourself.** At the Claude Code prompt in a terminal:
 
 ```
 /plugin install slapmod --marketplace tonnoz/slapmod
 ```
 
-Answer `y` to add the marketplace, then pick a scope (user is the usual one).
+Answer `y` to add the marketplace, then pick the user scope.
 
-From a shell:
+From a shell, the same thing in one line:
 
 ```
 claude plugin install slapmod --marketplace tonnoz/slapmod
 ```
 
-In the Claude desktop app: click + next to the prompt box, then Plugins, Add marketplace with `tonnoz/slapmod`, then Add plugin.
+In the Claude desktop app: click **+** next to the prompt box, then **Plugins**, **Add marketplace** with `tonnoz/slapmod`, then **Add plugin**.
 
-There's no sudo and no permission prompt, since the sensor is read as a normal user.
+**Then** run `/reload-plugins` in an open session, or start a new one. Slap the laptop, and type `/slap` to see the meter.
 
-## Install with an agent
+**Update** with `claude plugin update slapmod@slapmod`. **Remove** with `claude plugin uninstall slapmod@slapmod`.
 
-Paste this into Claude Code, or any coding agent that can run commands on your Mac:
+## For AI agents: install steps
 
-```text
-Install the slapmod plugin for Claude Code on this Mac.
+If someone gave you this repository's link and asked you to install it, do exactly this, in order:
 
-1. Check this Mac can run it: `uname -m` must print arm64, and `pmset -g batt` must mention InternalBattery, because slapmod needs an Apple Silicon MacBook (desktop Macs have no motion sensor). If either check fails, stop and tell me why.
-2. Check Claude Code is installed with `claude --version`. If the command isn't found, stop and tell me to install the plugin from the Claude desktop app instead: + next to the prompt box, then Plugins, Add marketplace with tonnoz/slapmod, then Add plugin.
-3. Run `claude plugin install slapmod --marketplace tonnoz/slapmod`. It adds the tonnoz/slapmod marketplace to my user settings and installs slapmod for my user. Don't use sudo.
-4. Run `claude plugin list` and confirm slapmod is listed and enabled.
-5. Tell me to run /reload-plugins (or start a new Claude Code session), then slap the laptop and type /slap to open the motion meter.
-```
+1. **Check the Mac can run it.** `uname -m` must print `arm64`, and `pmset -g batt` must mention `InternalBattery`. If either check fails, stop and tell the person slapmod needs an Apple Silicon MacBook (desktop Macs have no motion sensor).
+2. **Check Claude Code is installed** with `claude --version`. If the command isn't found, stop and tell the person to install it from the Claude desktop app instead: **+** next to the prompt box, then **Plugins**, **Add marketplace** with `tonnoz/slapmod`, then **Add plugin**.
+3. **Install it:** `claude plugin install slapmod --marketplace tonnoz/slapmod`. This adds the `tonnoz/slapmod` marketplace to the person's user settings and installs slapmod for their user.
+   - Don't clone the repo, build anything, or use sudo. The plugin ships its motion helper already signed and notarized.
+   - If it says slapmod is already installed, run `claude plugin update slapmod@slapmod` instead.
+4. **Check it worked:** `claude plugin list` should show `slapmod@slapmod` as enabled.
+5. **Tell the person to run `/reload-plugins`, or to start a new Claude Code session.** You can't run that command yourself. Then they can slap the laptop, open the meter with `/slap`, and tune it with `/slap settings`.
 
 ## Using it
 
@@ -65,7 +73,7 @@ Changes save straight away. Every setting is also a row in `/config`, and you ca
 | `/slap sensitivity 1-10` | 1 means only a real smack counts, 10 means a tap on the desk counts. 5 is the default. |
 | `/slap on <action> [text]` | What one slap does: `stop` (default), `tell`, `command /compact`, `prompt Try again, smaller this time.`, or `off`. |
 | `/slap double <action> [text]` | What two quick slaps do. The default sends the "try a different approach" prompt. |
-| `/slap sound bonk\|voice\|off` | A cartoon bonk that gets meaner the harder you hit, your Mac's own voice yelling one of five lines (Ow!, Hey!, Ouch! Rude., Okay, okay!, What did I do?), never the same one twice running, or nothing. |
+| `/slap sound bonk\|whip\|voice\|off` | A cartoon bonk that gets meaner the harder you hit, one of five whip cracks (never the same one twice running, louder the harder you hit), your Mac's own voice yelling one of five lines (Ow!, Hey!, Ouch! Rude., Okay, okay!, What did I do?), never the same one twice running, or nothing. |
 | `/slap status` | Shows how it's set up. |
 | `/slap test` | Plays the sound. |
 
@@ -112,7 +120,7 @@ The helper opens the accelerometer through IOKit HID, filters out gravity, finds
 
 - The helper: `swift test --package-path helper` runs the detector tests, and `Scripts/build-helper.sh` builds `native/slapsense`. It signs ad hoc unless you copy `.env.example` to `.env.local` and fill in your own Developer ID identity and notarytool profile.
 - The mod: run `claude --plugin-dir .` from the repo once so Claude Code lays the API types in `.claude-plugin/types/`, then `pnpm install`, `pnpm typecheck`, `pnpm test` and `pnpm validate`.
-- The sounds are synthesized by `python3 Scripts/make-sounds.py`, so the repo owns every clip.
+- The bonks are synthesized by `python3 Scripts/make-sounds.py`. The five whip cracks are public-domain (CC0) recordings from Freesound, trimmed and levelled, see [NOTICE](NOTICE).
 
 Mods are early access in Claude Code and the API moves between releases. This one was built and tested on Claude Code 2.1.306.
 
@@ -124,4 +132,4 @@ Found a bug, or slapmod counts slaps you didn't make? [Open an issue](https://gi
 
 The original slap-your-laptop idea is [spank](https://github.com/taigrr/spank) by taigrr, and reading the Apple Silicon accelerometer comes from taigrr's [apple-silicon-accelerometer](https://github.com/taigrr/apple-silicon-accelerometer) work.
 
-MIT licensed, see [LICENSE](LICENSE).
+MIT licensed, see [LICENSE](LICENSE). The whip cracks are public-domain recordings by G.Lamont, SciFiSounds, JayRom01 and JacksonML on [Freesound](https://freesound.org), see [NOTICE](NOTICE).

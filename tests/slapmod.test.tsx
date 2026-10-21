@@ -12,7 +12,7 @@ import {
   meter,
   parseCommandText,
   parseSlapArgs,
-  pickVoiceLine,
+  pickOther,
   slapNote,
   sparkline,
   strengthOf,
@@ -257,6 +257,17 @@ describe('voice', () => {
     expect(seen.played).toEqual([])
     expect(seen.spoken.length).toBe(1)
     expect(VOICE_LINES).toContain(seen.spoken[0])
+  })
+
+  test('the whip plays one of its five cracks, never the same twice running', { options: { sound: 'whip' } }, async ($, on) => {
+    const { clock, seen } = world(on, [{ events: [READY, LEADER, HARD_SLAP, HARD_SLAP, HARD_SLAP] }])
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+    await clock.settle()
+
+    expect(seen.played.length).toBe(3)
+    for (const asset of seen.played) expect(asset).toMatch(/^sounds\/whip-[1-5]\.mp3$/)
+    expect(seen.played[1]).not.toBe(seen.played[0])
+    expect(seen.played[2]).not.toBe(seen.played[1])
   })
 
   test('with the bonk, no voice lines are made', async ($, on) => {
@@ -532,6 +543,7 @@ describe('format', () => {
       ],
     })
     expect(parseSlapArgs('double off')).toEqual({ kind: 'set', writes: [{ field: 'onDoubleSlap', value: 'off' }] })
+    expect(parseSlapArgs('sound whip')).toEqual({ kind: 'set', writes: [{ field: 'sound', value: 'whip' }] })
     expect(parseSlapArgs('sound loud').kind).toBe('error')
     expect(parseSlapArgs('bogus').kind).toBe('error')
   })
@@ -564,11 +576,11 @@ describe('format', () => {
   test('a voice line is never the same twice running, and every one comes up', async () => {
     const randoms = [0, 0.2, 0.4, 0.6, 0.8, 0.99]
     for (let previous = 0; previous < VOICE_LINES.length; previous++) {
-      const picks = randoms.map(random => pickVoiceLine(previous, random))
+      const picks = randoms.map(random => pickOther(previous, VOICE_LINES.length, random))
       expect(picks).not.toContain(previous)
       expect(new Set(picks).size).toBe(VOICE_LINES.length - 1)
     }
-    expect(new Set(randoms.map(random => pickVoiceLine(-1, random))).size).toBe(VOICE_LINES.length)
+    expect(new Set(randoms.map(random => pickOther(-1, VOICE_LINES.length, random))).size).toBe(VOICE_LINES.length)
   })
 
   test('strength reads as light, solid or hard', async () => {

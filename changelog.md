@@ -1,3 +1,6 @@
+v0.3.0:
+- A whip: pick it with /slap sound whip or on the settings page. Five different cracks, at most a second each, played in turn at random and never the same one twice running, louder the harder you slap. They're real whips: public-domain (CC0) recordings from Freesound, trimmed and levelled (see NOTICE).
+
 v0.2.0:
 - A settings page: /slap settings has a 1 to 10 sensitivity dial over the live meter, which now draws a mark where a slap starts counting, so you can tap the desk and see what would trigger. It also sets what a slap and a double slap do, and the sound, and it works in the terminal and in the desktop app.
 - A slap or a double slap can now run a slash command (like /compact) or send a prompt you wrote, as well as stop or tell Claude. By default a double slap stops Claude and sends "That's not it. Step back and try a different approach."

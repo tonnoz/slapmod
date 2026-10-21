@@ -5,3 +5,4 @@ helper/.swiftpm/
 .claude-plugin/types/
 .env.local
 *.log
+sounds-source/

@@ -1,6 +1,6 @@
 {
   "name": "slapmod",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Slap your MacBook and Claude feels it: a live motion meter, bonks, and slaps that stop Claude, run a command or send a prompt.",
   "author": { "name": "tonnoz" },
   "homepage": "https://github.com/tonnoz/slapmod",
@@ -45,9 +45,9 @@
     "sound": {
       "type": "string",
       "title": "Sound",
-      "description": "bonk: a cartoon bonk. voice: your Mac's own voice yells one of five lines. off: silence.",
+      "description": "bonk: a cartoon bonk. whip: a whip crack. voice: your Mac's own voice yells one of five lines. off: silence.",
       "default": "bonk",
-      "options": ["bonk", "voice", "off"]
+      "options": ["bonk", "whip", "voice", "off"]
     }
   }
 }
