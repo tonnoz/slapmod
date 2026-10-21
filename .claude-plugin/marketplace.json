@@ -1,0 +1,12 @@
+{
+  "name": "slapmod",
+  "owner": { "name": "tonnoz" },
+  "description": "slapmod: slap your MacBook and Claude feels it.",
+  "plugins": [
+    {
+      "name": "slapmod",
+      "source": "./",
+      "description": "Slap your MacBook and Claude feels it: a live motion meter, bonks, and slap to stop."
+    }
+  ]
+}

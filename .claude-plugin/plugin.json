@@ -1,0 +1,34 @@
+{
+  "name": "slapmod",
+  "version": "0.1.0",
+  "description": "Slap your MacBook and Claude feels it: a live motion meter, bonks, and slap to stop.",
+  "author": { "name": "tonnoz" },
+  "homepage": "https://github.com/tonnoz/slapmod",
+  "repository": "https://github.com/tonnoz/slapmod",
+  "license": "MIT",
+  "keywords": ["macbook", "accelerometer", "slap", "fun"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "onSlap": {
+      "type": "string",
+      "title": "On slap",
+      "description": "stop: a slap stops Claude's turn and Claude hears why. tell: Claude hears about your slaps with your next message. off: sounds and meter only.",
+      "default": "stop",
+      "options": ["stop", "tell", "off"]
+    },
+    "sound": {
+      "type": "string",
+      "title": "Sound",
+      "description": "bonk: a cartoon bonk. voice: your Mac's own voice says ouch. off: silence.",
+      "default": "bonk",
+      "options": ["bonk", "voice", "off"]
+    },
+    "sensitivity": {
+      "type": "string",
+      "title": "Sensitivity",
+      "description": "How hard a slap has to be. low ignores bumps, high catches taps.",
+      "default": "medium",
+      "options": ["low", "medium", "high"]
+    }
+  }
+}
