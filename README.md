@@ -43,6 +43,7 @@ If someone gave you this repository's link and asked you to install it, do exact
 3. **Install it:** `claude plugin install slapmod --marketplace tonnoz/slapmod`. This adds the `tonnoz/slapmod` marketplace to the person's user settings and installs slapmod for their user.
    - Don't clone the repo, build anything, or use sudo. The plugin ships its motion helper already signed and notarized.
    - If it says slapmod is already installed, run `claude plugin update slapmod@slapmod` instead.
+   - A closing note that "userConfig options" are not yet set is normal. The defaults apply, and the person can change them later with `/slap settings`. Don't pass `--config`.
 4. **Check it worked:** `claude plugin list` should show `slapmod@slapmod` as enabled.
 5. **Tell the person to run `/reload-plugins`, or to start a new Claude Code session.** You can't run that command yourself. Then they can slap the laptop, open the meter with `/slap`, and tune it with `/slap settings`.
 
