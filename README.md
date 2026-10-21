@@ -3,6 +3,13 @@
 
 Slap your MacBook and Claude feels it. slapmod is a free, open-source mod for Claude Code that reads your MacBook's built-in motion sensor, so when you smack the laptop it goes bonk, a little meter in the side panel jumps, and if Claude was halfway through doing something you didn't like, the slap stops it and Claude gets told on your next message that you slapped it.
 
+<p align="center">
+  <a href="https://slapmac.com/?utm_source=github&utm_medium=readme&utm_campaign=slapmod"><img src="docs/slapmac.jpg" alt="SlapMac: slap your MacBook and it screams back" width="100%"></a>
+</p>
+<p align="center">
+  <b><a href="https://slapmac.com/?utm_source=github&utm_medium=readme&utm_campaign=slapmod">Get SlapMac</a></b>, the Mac app that screams back when you slap it. With it, every slap plays the SlapMac pack you picked, your own custom sounds or a whip that lashes across your screen.
+</p>
+
 ## Requirements
 
 - **A MacBook: Apple Silicon, M1 Pro or newer.** slapmod reads the laptop's built-in motion sensor. Desktop Macs (iMac, Mac mini, Mac Studio, Mac Pro) and Intel MacBooks don't have one, so it can't work there.
