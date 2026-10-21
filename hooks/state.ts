@@ -8,9 +8,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Timer } from 'claude-code'
 
-import { DEFAULT_SETTINGS, GESTURE_START, HISTORY_LENGTH, NOTHING_PENDING } from './format'
+import { DEFAULT_SETTINGS, GESTURE_START, HISTORY_LENGTH, NOTHING_PENDING, NO_SLAPMAC } from './format'
 import type { EchoGuard, GestureState, Pending, SettingField, Settings } from './format'
-import type { LastSlap, Sensor } from '../types'
+import type { LastSlap, Sensor, SlapMacLink } from '../types'
 
 export const PANE = 'slapmod'
 export const HELPER = 'native/slapsense'
@@ -25,7 +25,7 @@ const levels = atom({ plugin: 'slapmod', key: 'levels' } as const, [])
 const slaps = atom({ plugin: 'slapmod', key: 'slaps' } as const, 0)
 const total = atom({ plugin: 'slapmod', key: 'total' } as const, 0)
 const last = atom({ plugin: 'slapmod', key: 'last' } as const, null)
-const slapMacRunning = atom({ plugin: 'slapmod', key: 'slapMacRunning' } as const, false)
+const slapMac = atom({ plugin: 'slapmod', key: 'slapMac' } as const, NO_SLAPMAC)
 const jolt = atom({ plugin: 'slapmod', key: 'jolt' } as const, PANE_PADDING)
 const view = atom({ plugin: 'slapmod', key: 'view' } as const, 'meter')
 const dial = atom({ plugin: 'slapmod', key: 'dial' } as const, null)
@@ -38,7 +38,14 @@ export const settings: Settings = { ...DEFAULT_SETTINGS }
 export const live: {
   isPaneOpen: boolean
   isSoundLeader: boolean
-  isSlapMacRunning: boolean
+  /** Where SlapMac stands; the `slapMac` atom shows the same to the pane. */
+  link: SlapMacLink
+  /** SlapMac's bridge, once found. */
+  bridge: string | undefined
+  bridgeSearchedAt: number
+  /** Set when the bridge failed in a way that retrying won't fix, for this load. */
+  isBridgeBroken: boolean
+  isCheckingSlapMac: boolean
   sessionId: string
   configKeys: Partial<Record<SettingField, string>>
   guard: EchoGuard | undefined
@@ -53,7 +60,11 @@ export const live: {
 } = {
   isPaneOpen: false,
   isSoundLeader: false,
-  isSlapMacRunning: false,
+  link: NO_SLAPMAC,
+  bridge: undefined,
+  bridgeSearchedAt: -Infinity,
+  isBridgeBroken: false,
+  isCheckingSlapMac: false,
   sessionId: '',
   configKeys: {},
   guard: undefined,
@@ -111,12 +122,12 @@ export function setLast($: EngineInterface, slap: LastSlap): Promise<LastSlap | 
   return update($, last, () => slap)
 }
 
-export function readSlapMacRunning($: EngineInterface): Promise<boolean> {
-  return read($, slapMacRunning)
+export function readSlapMac($: EngineInterface): Promise<SlapMacLink> {
+  return read($, slapMac)
 }
 
-export function setSlapMacRunning($: EngineInterface, isRunning: boolean): Promise<boolean> {
-  return update($, slapMacRunning, () => isRunning)
+export function setSlapMac($: EngineInterface, link: SlapMacLink): Promise<SlapMacLink> {
+  return update($, slapMac, () => link)
 }
 
 export function readJolt($: EngineInterface): Promise<number> {

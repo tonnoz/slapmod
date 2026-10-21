@@ -10,21 +10,28 @@ import {
   SEND_MIN_STRENGTH,
   SETTING_FIELDS,
   VOICE_LINES,
+  bridgeCandidates,
   canSend,
   cleanText,
   describeSettings,
   gesture,
   isEcho,
+  isSameLink,
+  linkFromStatus,
   parseCommandText,
   parseSlapArgs,
   pickOther,
+  playRefusal,
+  playsOwnSounds,
   plural,
   settingValue,
   slapNote,
   strengthOf,
   textRefusal,
 } from './format'
+import { NO_SLAPMAC } from './format'
 import type { Action, Gesture, GestureEffect, SettingField, SettingWrite, Strength } from './format'
+import type { SlapMacLink } from '../types'
 import {
   PANE,
   PANE_PADDING,
@@ -35,12 +42,13 @@ import {
   readDial,
   readPending,
   readRunningTurn,
+  readSlapMac,
   setDial,
   setJolt,
   setLast,
   setPending,
   setRunningTurn,
-  setSlapMacRunning,
+  setSlapMac,
   setView,
   settings,
 } from './state'
@@ -67,6 +75,11 @@ const JOLT_FRAMES = [3, 0, 2, PANE_PADDING]
 const JOLT_FRAME_MS = 50
 const SETTINGS_ROWS = 20
 const SLAPMAC_PROCESS = 'slapmac'
+const SLAPMAC_QUERY = "kMDItemCFBundleIdentifier == 'com.tonnoz.slapmac'"
+/** How often to look for SlapMac's bridge again while it can't be found. */
+const BRIDGE_SEARCH_MS = 300_000
+/** What a setting SlapMac takes over while it listens is called, for the note after saving it. */
+const SLAPMAC_FIELDS: Partial<Record<SettingField, string>> = { sensitivity: 'the sensitivity', sound: 'the sound' }
 /** Where a prompt the person typed comes from: the terminal, a remote client, the desktop app. */
 const PERSON_ORIGINS = ['composer', 'bridge', 'sdk']
 
@@ -155,8 +168,27 @@ function pickWhip(): Clip {
   return WHIPS[live.lastWhip] ?? BONKS.solid
 }
 
-export async function playTest($: EngineInterface): Promise<void> {
+/** Plays what a slap would: SlapMac's pack while it listens. Says how that went. */
+export async function playTest($: EngineInterface): Promise<{ text: string; isPlayed: boolean }> {
+  if (live.link.mode === 'linked' && live.bridge !== undefined) {
+    const { voices } = live.link
+    const result = await $.process.run([live.bridge, 'play', '--strength', String(TEST_STRENGTH)]).catch(() => undefined)
+    const refusal = result === undefined ? "SlapMac didn't answer." : playRefusal(result.stdout)
+
+    return refusal === undefined
+      ? { text: `SlapMac played its ${voices} pack.`, isPlayed: true }
+      : { text: `SlapMac: ${refusal}`, isPlayed: false }
+  }
+  if (settings.sound === 'off') return { text: 'Sounds are off. Turn them on in /slap settings.', isPlayed: false }
   await play($, TEST_STRENGTH).catch(() => undefined)
+
+  return { text: 'Bonk.', isPlayed: true }
+}
+
+/** The pane's Test sound: quiet when it plays, a toast when it can't. */
+export async function testSound($: EngineInterface): Promise<void> {
+  const tested = await playTest($)
+  if (!tested.isPlayed) $.ui.toast(tested.text)
 }
 
 function joltPane($: EngineInterface): void {
@@ -192,7 +224,7 @@ export async function slapped($: EngineInterface, g: number, strength: number): 
     $.ui.toast(`👋 A ${strengthOf(strength)} slap`, { timeoutMs: TOAST_MS })
   }
   // One session plays per slap, and none while SlapMac plays its own.
-  if (live.isSoundLeader && !live.isSlapMacRunning) void play($, strength).catch(() => undefined)
+  if (live.isSoundLeader && playsOwnSounds(live.link)) void play($, strength).catch(() => undefined)
 
   if (settings.onSlap !== 'off' || settings.onDoubleSlap !== 'off') {
     await setPending($, was => ({ ...was, count: was.count + 1, hardest: Math.max(was.hardest, strength) }))
@@ -409,15 +441,75 @@ export async function reconcileDial($: EngineInterface): Promise<void> {
   live.dialTimer = $.clock.after(DIAL_COMMIT_MS, () => void commitDial($))
 }
 
-// SlapMac plays its own sounds on a slap, so while it runs this mod stays quiet.
+/**
+ * Asks SlapMac whether it detects and voices the slaps. A SlapMac with the
+ * bridge answers for itself; an older one is only seen running, and plays its
+ * own sounds either way. Skipped while the bridge streams: the stream says
+ * when that ends.
+ */
 export async function checkSlapMac($: EngineInterface): Promise<void> {
+  if (live.isCheckingSlapMac || live.link.mode === 'linked') return
+  live.isCheckingSlapMac = true
+  try {
+    await setLink($, await askSlapMac($))
+  } finally {
+    live.isCheckingSlapMac = false
+  }
+}
+
+/** Sets where SlapMac stands. The atom outlives a reload and this load's copy doesn't, so the atom is what's compared. */
+export async function setLink($: EngineInterface, link: SlapMacLink): Promise<void> {
+  live.link = link
+  if (isSameLink(link, await readSlapMac($))) return
+  await setSlapMac($, link)
+}
+
+/** Whether SlapMac's bridge runs in the helper's place. */
+export function isBridged(): boolean {
+  return live.link.mode === 'linked' && live.bridge !== undefined
+}
+
+async function askSlapMac($: EngineInterface): Promise<SlapMacLink> {
+  const bridge = await findBridge($)
+  if (bridge !== undefined) {
+    const result = await $.process.run([bridge, 'status']).catch(() => undefined)
+    // Gone since it was found: look again next time.
+    if (result === undefined) live.bridge = undefined
+    const link = result === undefined ? undefined : linkFromStatus(result.stdout)
+    if (link !== undefined) return link
+  }
   const isRunning = await $.process.run(['/usr/bin/pgrep', '-x', SLAPMAC_PROCESS]).then(
     result => result.exitCode === 0,
     () => false,
   )
-  if (isRunning === live.isSlapMacRunning) return
-  live.isSlapMacRunning = isRunning
-  await setSlapMacRunning($, isRunning)
+
+  return isRunning ? { mode: 'legacy' } : NO_SLAPMAC
+}
+
+/** Finds SlapMac's bridge: the app folders first, then Spotlight, every few minutes until it turns up. */
+async function findBridge($: EngineInterface): Promise<string | undefined> {
+  if (live.isBridgeBroken) return undefined
+  if (live.bridge !== undefined) return live.bridge
+  const now = await $.clock.now()
+  if (now - live.bridgeSearchedAt < BRIDGE_SEARCH_MS) return undefined
+  live.bridgeSearchedAt = now
+  const home = (await $.env.get('HOME').catch(() => undefined)) ?? ''
+  for (const spotlight of [false, true]) {
+    const found = spotlight
+      ? await $.process.run(['/usr/bin/mdfind', SLAPMAC_QUERY]).then(
+          result => result.stdout,
+          () => '',
+        )
+      : ''
+    for (const path of bridgeCandidates(home, found)) {
+      if (await $.fs.exists(path).catch(() => false)) {
+        live.bridge = path
+        return path
+      }
+    }
+  }
+
+  return undefined
 }
 
 export async function openPane($: EngineInterface, page: 'meter' | 'settings'): Promise<CommandRunResult> {
@@ -445,16 +537,19 @@ export async function runSlapCommand($: EngineInterface, args: string): Promise<
     case 'settings':
       return openPane($, 'settings')
     case 'status':
-      return { text: describeSettings(settings) }
+      return { text: describeSettings(settings, live.link) }
     case 'test':
-      if (settings.sound === 'off') return { text: 'Sounds are off. Turn them on in /slap settings.' }
-      await playTest($)
-      return { text: 'Bonk.' }
+      return { text: (await playTest($)).text }
     case 'error':
       return { text: parsed.message }
     case 'set': {
       const refusal = await writeSettings($, parsed.writes)
-      return { text: refusal ?? 'Saved.' }
+      if (refusal !== undefined) return { text: refusal }
+      const takenOver = parsed.writes.map(write => SLAPMAC_FIELDS[write.field]).find(name => name !== undefined)
+      if (live.link.mode === 'linked' && takenOver !== undefined) {
+        return { text: `Saved. SlapMac sets ${takenOver} while it's listening, so this applies without it.` }
+      }
+      return { text: 'Saved.' }
     }
   }
 }

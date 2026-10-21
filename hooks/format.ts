@@ -2,12 +2,18 @@
 // meter's drawing and the note Claude reads. No `$` here, so tests can call
 // them directly.
 
+import type { SlapMacLink } from '../types'
+
 export const HISTORY_LENGTH = 120
 export const MAX_LEVEL = 10
 export const DOUBLE_WINDOW_MS = 800
 export const SEND_MIN_STRENGTH = 0.35
 export const SEND_COOLDOWN_MS = 5_000
 export const MAX_TEXT_LENGTH = 2_000
+/** The line protocol of SlapMac's `slapmac-bridge`, which every line it prints names. */
+export const BRIDGE_PROTOCOL = 1
+export const BRIDGE_IN_APP = 'Contents/MacOS/slapmac-bridge'
+export const NO_SLAPMAC: SlapMacLink = { mode: 'none' }
 
 const BLOCKS = '▁▂▃▄▅▆▇█'
 const THRESHOLD_MARK = '┃'
@@ -65,8 +71,10 @@ export const GESTURE_FIELDS: Record<Gesture, { action: 'onSlap' | 'onDoubleSlap'
   double: { action: 'onDoubleSlap', text: 'doubleSlapText' },
 }
 
+/** A line from slapsense, or from SlapMac's bridge, which adds its pack and threshold. */
 export type HelperEvent =
-  | { type: 'ready'; version: string; model: string }
+  | { type: 'ready'; version: string; model: string; protocol?: number; voices?: string; threshold?: number }
+  | { type: 'settings'; voices: string; threshold: number }
   | { type: 'leader' }
   | { type: 'level'; g: number }
   | { type: 'slap'; g: number; strength: number }
@@ -127,6 +135,76 @@ export function parseEvent(line: string): HelperEvent | undefined {
     return event as HelperEvent
   } catch {
     return undefined
+  }
+}
+
+function answer(stdout: string): Record<string, unknown> | undefined {
+  const event = parseEvent(stdout.split('\n').find(line => line.trim() !== '') ?? '')
+  if (event === undefined || (event as { protocol?: unknown }).protocol !== BRIDGE_PROTOCOL) return undefined
+
+  return event as Record<string, unknown>
+}
+
+/** What `slapmac-bridge status` printed, as a link; undefined when SlapMac gave no status this mod reads. */
+export function linkFromStatus(stdout: string): SlapMacLink | undefined {
+  const status = answer(stdout)
+  if (status?.type !== 'status') return undefined
+  if (status.available === true && typeof status.voices === 'string' && typeof status.threshold === 'number') {
+    return { mode: 'linked', voices: status.voices, threshold: status.threshold }
+  }
+
+  return { mode: 'idle', reason: typeof status.reason === 'string' ? status.reason : "SlapMac isn't listening." }
+}
+
+/** What `slapmac-bridge play` printed: undefined when SlapMac played, or why it didn't. */
+export function playRefusal(stdout: string): string | undefined {
+  const played = answer(stdout)
+  if (played?.type === 'played' && played.ok === true) return undefined
+  if (typeof played?.reason === 'string') return played.reason
+  if (typeof played?.message === 'string') return played.message
+
+  return "SlapMac didn't answer."
+}
+
+/** Where SlapMac's bridge may be: the app folders first, then what Spotlight found, each once. */
+export function bridgeCandidates(home: string, spotlight: string): string[] {
+  const apps = [
+    '/Applications/SlapMac.app',
+    ...(home === '' ? [] : [`${home}/Applications/SlapMac.app`]),
+    ...spotlight
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.endsWith('.app')),
+  ]
+
+  return [...new Set(apps.map(app => `${app}/${BRIDGE_IN_APP}`))]
+}
+
+export function isSameLink(a: SlapMacLink, b: SlapMacLink): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+/** Whether this mod plays the sounds: not while SlapMac does. */
+export function playsOwnSounds(link: SlapMacLink): boolean {
+  return link.mode === 'none' || link.mode === 'idle'
+}
+
+/** The smallest slap, in g: SlapMac's while it listens, else this mod's sensitivity. */
+export function thresholdOf(settings: Pick<Settings, 'level'>, link: SlapMacLink): number {
+  return link.mode === 'linked' ? link.threshold : levelToThreshold(settings.level)
+}
+
+/** One line on what SlapMac is doing, or undefined when it isn't there. */
+export function slapMacNote(link: SlapMacLink): string | undefined {
+  switch (link.mode) {
+    case 'none':
+      return undefined
+    case 'legacy':
+      return 'SlapMac is running, so it plays the sounds.'
+    case 'idle':
+      return `${link.reason} slapmod plays its own sounds.`
+    case 'linked':
+      return `SlapMac is listening and plays the ${link.voices} pack.`
   }
 }
 
@@ -211,12 +289,17 @@ export function actionText(action: Action, text: string): string {
   }
 }
 
-export function describeSettings(settings: Settings): string {
+export function describeSettings(settings: Settings, link: SlapMacLink = NO_SLAPMAC): string {
+  const isLinked = link.mode === 'linked'
+  const sensitivity = `Sensitivity ${settings.level} of ${MAX_LEVEL} (${levelToThreshold(settings.level).toFixed(3)} g)`
+  const note = slapMacNote(link)
+
   return [
-    `Sensitivity ${settings.level} of ${MAX_LEVEL} (${levelToThreshold(settings.level).toFixed(3)} g)`,
+    isLinked ? `Sensitivity: set in SlapMac (${link.threshold.toFixed(3)} g). Without it: ${settings.level} of ${MAX_LEVEL}` : sensitivity,
     `A slap ${actionText(settings.onSlap, settings.slapText)}`,
     `A double slap ${actionText(settings.onDoubleSlap, settings.doubleSlapText)}`,
-    `Sound: ${settings.sound}`,
+    isLinked ? `Sound: SlapMac's ${link.voices} pack. Without it: ${settings.sound}` : `Sound: ${settings.sound}`,
+    ...(note === undefined || isLinked ? [] : [note]),
   ].join('\n')
 }
 

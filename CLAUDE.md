@@ -6,7 +6,8 @@ A Claude Code mod (function hooks plugin) plus a native Swift helper that reads 
 - `hooks/register.tsx`: hook wiring only. Matchers use literals declared in this file, so the loader can read them.
 - `hooks/state.ts`: the only file that touches `$.state`. The loader accepts state sources declared in the file that uses them, so other files call its `read…`/`set…` functions. `settings` comes from this load's options, and `live` holds per-load state. Both start over on a reload, and every settings change causes one.
 - `hooks/actions.ts`: what a slap does (gestures, stop, command, prompt), settings writes through `$.config.set` (queued in `$.store`, since each write reloads the module), and the dial.
-- `hooks/helper.ts`: the helper's lifecycle, and `startSession`.
+- `hooks/helper.ts`: the helper's lifecycle, SlapMac's `slapmac-bridge stream` in its place while SlapMac listens, and `startSession`.
+- SlapMac link (`hooks/actions.ts`, `checkSlapMac`): finds the bridge inside SlapMac.app, asks `slapmac-bridge status` every 15 s, and falls back to `pgrep -x slapmac` for an older SlapMac. The bridge belongs to the closed-source SlapMac: slapmod only reads its lines (slapsense's shapes plus `voices`, `threshold` and `"protocol": 1`) and must keep working without it.
 - `hooks/pane.tsx`: the meter view and the settings page.
 - `hooks/format.ts`: pure helpers (the line protocol, settings parsing, `/slap` arguments, the gesture reducer, the meter, the note Claude reads), tested directly.
 - Functions that take `$` must be top-level declarations, in their own file or imported from the plugin's own files.

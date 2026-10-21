@@ -1,6 +1,6 @@
 {
   "name": "slapmod",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Slap your MacBook and Claude feels it: a live motion meter, bonks, and slaps that stop Claude, run a command or send a prompt.",
   "author": { "name": "tonnoz" },
   "homepage": "https://github.com/tonnoz/slapmod",

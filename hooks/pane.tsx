@@ -12,8 +12,10 @@ import {
   levelToThreshold,
   meter,
   plural,
+  slapMacNote,
   sparkline,
   strengthOf,
+  thresholdOf,
 } from './format'
 import type { Gesture } from './format'
 import {
@@ -23,14 +25,14 @@ import {
   readLast,
   readLevels,
   readSensor,
-  readSlapMacRunning,
+  readSlapMac,
   readSlaps,
   readTotal,
   readView,
   setView,
   settings,
 } from './state'
-import { nudgeDial, playTest, saveSetting, saveText } from './actions'
+import { nudgeDial, saveSetting, saveText, testSound } from './actions'
 
 const METER_LABEL_WIDTH = 8
 const MIN_WIDTH = 8
@@ -51,11 +53,12 @@ async function renderMeter($: EngineInterface, e: RenderInput<'Pane'>) {
   const count = await readSlaps($)
   const all = await readTotal($)
   const latest = await readLast($)
-  const isSlapMacOn = await readSlapMacRunning($)
+  const link = await readSlapMac($)
+  const note = slapMacNote(link)
   const offset = await readJolt($)
   const width = Math.max(MIN_WIDTH, e.props.bodyColumns - offset - PANE_PADDING)
   const level = history.at(-1) ?? 0
-  const threshold = levelToThreshold(settings.level)
+  const threshold = thresholdOf(settings, link)
 
   return (
     <Box flexDirection="column" paddingLeft={offset}>
@@ -80,10 +83,10 @@ async function renderMeter($: EngineInterface, e: RenderInput<'Pane'>) {
       )}
       <Text dimColor>A slap {actionText(settings.onSlap, settings.slapText)}</Text>
       <Text dimColor>A double slap {actionText(settings.onDoubleSlap, settings.doubleSlapText)}</Text>
-      {isSlapMacOn && <Text dimColor>SlapMac is running, so it plays the sounds.</Text>}
+      {note !== undefined && <Text dimColor>{note}</Text>}
       <Box marginTop={1} gap={1}>
         <Button key="settings" label="Settings" onPress={() => void setView($, 'settings')} />
-        <Button key="test" label="Test sound" onPress={() => void playTest($)} />
+        <Button key="test" label="Test sound" onPress={() => void testSound($)} />
       </Box>
     </Box>
   )
@@ -95,8 +98,9 @@ async function renderSettings($: EngineInterface, e: RenderInput<'Pane'>) {
   const Input = e.surface === 'mobile' ? undefined : $.ui.resolve(e).Input
   const draft = await readDial($)
   const history = await readLevels($)
+  const link = await readSlapMac($)
   const level = draft ?? settings.level
-  const threshold = levelToThreshold(level)
+  const threshold = link.mode === 'linked' ? link.threshold : levelToThreshold(level)
   const g = history.at(-1) ?? 0
   const width = Math.max(MIN_WIDTH, e.props.bodyColumns - PANE_PADDING)
 
@@ -138,14 +142,18 @@ async function renderSettings($: EngineInterface, e: RenderInput<'Pane'>) {
   return (
     <Box flexDirection="column" paddingLeft={PANE_PADDING}>
       <Text bold>Sensitivity</Text>
-      <Box gap={1}>
-        <Button key="sensitivity-down" label="−" dimColor={level <= 1} onPress={() => void nudgeDial($, -1)} />
-        <Text>
-          {dialCells(level)} {level}
-        </Text>
-        <Button key="sensitivity-up" label="+" dimColor={level >= MAX_LEVEL} onPress={() => void nudgeDial($, 1)} />
-        <Text dimColor>{threshold.toFixed(3)} g</Text>
-      </Box>
+      {link.mode === 'linked' ? (
+        <Text dimColor>Set in SlapMac while it's listening ({threshold.toFixed(3)} g).</Text>
+      ) : (
+        <Box gap={1}>
+          <Button key="sensitivity-down" label="−" dimColor={level <= 1} onPress={() => void nudgeDial($, -1)} />
+          <Text>
+            {dialCells(level)} {level}
+          </Text>
+          <Button key="sensitivity-up" label="+" dimColor={level >= MAX_LEVEL} onPress={() => void nudgeDial($, 1)} />
+          <Text dimColor>{threshold.toFixed(3)} g</Text>
+        </Box>
+      )}
       <Text color="claude">
         {meter(g, width - METER_LABEL_WIDTH, threshold)} {g.toFixed(2)} g
       </Text>
@@ -153,7 +161,14 @@ async function renderSettings($: EngineInterface, e: RenderInput<'Pane'>) {
       {gestureRows('single')}
       {gestureRows('double')}
       <Box flexDirection="column" marginTop={1}>
-        <Text bold>Sound: {settings.sound}</Text>
+        {link.mode === 'linked' ? (
+          <>
+            <Text bold>Sound: SlapMac's {link.voices} pack</Text>
+            <Text dimColor>Pick packs in SlapMac. Without SlapMac: {settings.sound}</Text>
+          </>
+        ) : (
+          <Text bold>Sound: {settings.sound}</Text>
+        )}
         <Box columnGap={1}>
           {SOUNDS.map(one => (
             <Button
@@ -166,7 +181,7 @@ async function renderSettings($: EngineInterface, e: RenderInput<'Pane'>) {
         </Box>
       </Box>
       <Box marginTop={1} gap={1}>
-        <Button key="test" label="Test sound" onPress={() => void playTest($)} />
+        <Button key="test" label="Test sound" onPress={() => void testSound($)} />
         <Button key="back" label="Back" onPress={() => void setView($, 'meter')} />
       </Box>
     </Box>

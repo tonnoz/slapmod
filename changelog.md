@@ -1,3 +1,8 @@
+v0.4.0:
+- Works with SlapMac 1.6.0 and later: while SlapMac is listening, slapmod takes its slaps from SlapMac through SlapMac's slapmac-bridge, so one detector counts them, SlapMac's pack is what you hear, and the count, the meter and what happens to Claude match it. The meter marks SlapMac's sensitivity, and Test sound plays SlapMac's pack.
+- When SlapMac is paused, has Slap Mode off, isn't activated or quits, slapmod goes back to its own helper and sounds right away, instead of staying silent because SlapMac was running. It picks SlapMac up again within 15 seconds.
+- An older SlapMac without the bridge still keeps slapmod quiet while it runs.
+
 v0.3.0:
 - A whip: pick it with /slap sound whip or on the settings page. Five different cracks, at most a second each, played in turn at random and never the same one twice running, louder the harder you slap. They're real whips: public-domain (CC0) recordings from Freesound, trimmed and levelled (see NOTICE).
 

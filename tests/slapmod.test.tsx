@@ -6,13 +6,17 @@ import {
   DEFAULT_SETTINGS,
   GESTURE_START,
   SETTING_FIELDS,
+  bridgeCandidates,
+  describeSettings,
   gesture,
   levelToThreshold,
   lineSplitter,
+  linkFromStatus,
   meter,
   parseCommandText,
   parseSlapArgs,
   pickOther,
+  playRefusal,
   slapNote,
   sparkline,
   strengthOf,
@@ -48,6 +52,32 @@ const PRESENTATION = { isFullscreen: false, columns: 120 }
 const THIS_SESSION = 'session-here'
 /** The helper runs for the session: it stays this long after its last line. */
 const HELPER_LIFE_MS = 3_600_000
+const HELPER = /native\/slapsense$/
+/** SlapMac's bridge, where an installed SlapMac keeps it. */
+const BRIDGE = '/Applications/SlapMac.app/Contents/MacOS/slapmac-bridge'
+const STREAM = [BRIDGE, 'stream', '--level-hz', '10']
+const LISTENING = { type: 'status', protocol: 1, version: '1.6.0', available: true, voices: 'Woman', threshold: 0.137 }
+const NOT_RUNNING = { type: 'error', protocol: 1, code: 'not-running', message: "SlapMac isn't running." }
+const BRIDGE_READY = { type: 'ready', protocol: 1, version: '1.6.0', model: 'Mac16,8', voices: 'Woman', threshold: 0.137 }
+const BRIDGE_LEADER = { type: 'leader', protocol: 1 }
+const BRIDGE_SLAP = { type: 'slap', protocol: 1, g: 1.2, strength: 0.9 }
+const PLAYED = { type: 'played', protocol: 1, ok: true }
+
+function paused(reason: string) {
+  return { type: 'status', protocol: 1, version: '1.6.0', available: false, reason }
+}
+
+/** The motion helper's lines: ready, then a level every second, so it can be switched away from. */
+function levels(seconds: number): Step[] {
+  return [{ events: [READY, LEADER] }, ...Array.from({ length: seconds }, () => ({ afterMs: 1_000, events: [{ type: 'level', g: 0.01 }] }))]
+}
+
+/**
+ * A SlapMac with the bridge: what `status` and `play` answer, each call taking
+ * the next answer and keeping the last, and what a stream prints. A stream that
+ * prints an error ends there, as the bridge does.
+ */
+type FakeSlapMac = { status: object[]; stream?: Step[]; played?: object[] }
 
 /** What the helper says: some events, after the clock moves `afterMs` from the step before. */
 type Step = { afterMs?: number; events: object[] }
@@ -75,7 +105,8 @@ function world(
     isSlapMacRunning = false,
     canSay = true,
     store = {},
-  }: { isSlapMacRunning?: boolean; canSay?: boolean; store?: Record<string, unknown> } = {},
+    slapMac,
+  }: { isSlapMacRunning?: boolean; canSay?: boolean; store?: Record<string, unknown>; slapMac?: FakeSlapMac } = {},
 ) {
   const clock = mock.clock(on, { now: START })
   mock.store(on, store)
@@ -111,8 +142,21 @@ function world(
     return { value: undefined }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
+  const asked = { status: 0, played: 0 }
+  function next(answers: object[] | undefined, key: 'status' | 'played'): object {
+    const answer = answers?.[Math.min(asked[key], answers.length - 1)] ?? NOT_RUNNING
+    asked[key] += 1
+    return answer
+  }
+  on('fs.exists', (_, e) => ({ value: slapMac !== undefined && e.path === BRIDGE }))
   on('process.run', (_, e) => {
     seen.runs.push(e.argv)
+    if (e.argv[0] === BRIDGE) {
+      const answer = e.argv[1] === 'play' ? next(slapMac?.played, 'played') : next(slapMac?.status, 'status')
+      return {
+        value: { exitCode: 0, stdout: says(answer), stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+      }
+    }
     const isPgrep = e.argv[0] === '/usr/bin/pgrep'
     const isSay = e.argv[0] === '/usr/bin/say'
     return {
@@ -127,12 +171,15 @@ function world(
   })
   on('process.spawn', async function* (_, e) {
     seen.spawned.push(e.argv)
-    for (const step of steps) {
+    const isBridge = e.argv[0] === BRIDGE
+    const printed = isBridge ? (slapMac?.stream ?? []) : steps
+    for (const step of printed) {
       if (step.afterMs !== undefined) await clock.sleep(step.afterMs)
       yield { stream: 'stdout' as const, text: says(...step.events) }
     }
-    await clock.sleep(HELPER_LIFE_MS)
-    return { value: { code: 0, signal: null } }
+    const hasEnded = isBridge && printed.some(step => step.events.some(event => 'code' in event))
+    if (!hasEnded) await clock.sleep(HELPER_LIFE_MS)
+    return { value: { code: hasEnded ? 1 : 0, signal: null } }
   })
   on('fs.read', () => ({ value: { base64: VOICE_WAV } }))
   on('audio.speak', (_, e) => {
@@ -232,6 +279,129 @@ describe('slaps', () => {
       expect(await ui.find({ type: 'Text', text: /no motion sensor/ })).toBeDefined()
       await ui.unmount()
     }
+  })
+})
+
+describe('SlapMac', () => {
+  const LINKED: FakeSlapMac = { status: [LISTENING], stream: [{ events: [BRIDGE_READY, BRIDGE_LEADER] }] }
+
+  test('while SlapMac listens, its bridge feeds the slaps, it plays them, and a slap still stops Claude', async ($, on) => {
+    const { clock, seen } = world(on, ON_START, {
+      slapMac: { status: [LISTENING], stream: [{ events: [BRIDGE_READY, BRIDGE_LEADER] }, { afterMs: 100, events: [BRIDGE_SLAP] }] },
+    })
+    await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+    await $.turn.start({ text: 'rewrite everything', turnId: 'turn-1' })
+    await clock.advance(1_000)
+
+    expect(seen.spawned).toEqual([STREAM])
+    expect(seen.played).toEqual([])
+    expect(seen.aborted).toEqual(['turn-1'])
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    expect((await ui.find({ type: 'Text', text: /this session/ }))?.text).toBe('1 slap this session')
+    expect(await ui.find({ type: 'Text', text: /SlapMac is listening and plays the Woman pack/ })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('when SlapMac stops listening, the mod goes back to its own helper and sounds', async ($, on) => {
+    const { clock, seen } = world(on, [{ events: [READY, LEADER] }, { afterMs: 100, events: [HARD_SLAP] }], {
+      slapMac: {
+        status: [LISTENING, paused('Slap Mode is off in SlapMac.')],
+        stream: [
+          { events: [BRIDGE_READY, BRIDGE_LEADER] },
+          { afterMs: 100, events: [{ type: 'error', protocol: 1, code: 'unavailable', message: 'Slap Mode is off in SlapMac.' }] },
+        ],
+      },
+    })
+    await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+    await clock.advance(16_000)
+
+    expect(seen.spawned).toHaveLength(2)
+    expect(seen.spawned[1]?.[0]).toMatch(HELPER)
+    expect(seen.played).toEqual(['sounds/bonk-hard.wav'])
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    expect(await ui.find({ type: 'Text', text: /^Slap Mode is off in SlapMac\. slapmod plays its own sounds\.$/ })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('a SlapMac that is not activated leaves the slaps and the sounds to the mod', async ($, on) => {
+    const { clock, seen } = world(on, [{ events: [READY, LEADER, HARD_SLAP] }], {
+      slapMac: { status: [paused("SlapMac isn't activated yet.")] },
+    })
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+    await clock.settle()
+
+    expect(seen.spawned[0]?.[0]).toMatch(HELPER)
+    expect(seen.played).toEqual(['sounds/bonk-hard.wav'])
+    const { text } = await $.command.run({ command: 'slap', args: 'status', origin: COMPOSER, presentation: PRESENTATION })
+    expect(text).toMatch(/SlapMac isn't activated yet\. slapmod plays its own sounds\./)
+  })
+
+  test('when SlapMac starts listening, its bridge takes over from the mod helper', async ($, on) => {
+    const { clock, seen } = world(on, levels(30), { slapMac: { status: [NOT_RUNNING, LISTENING], stream: LINKED.stream } })
+    await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+    await clock.advance(1_000)
+    expect(seen.spawned).toHaveLength(1)
+
+    await clock.advance(16_000)
+    expect(seen.spawned).toHaveLength(2)
+    expect(seen.spawned[1]).toEqual(STREAM)
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    expect(await ui.find({ type: 'Text', text: /plays the Woman pack/ })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('/slap test plays through SlapMac, and says when it will not', async ($, on) => {
+    const refused = { type: 'played', protocol: 1, ok: false, reason: 'SlapMac played one a moment ago.' }
+    const { clock, seen } = world(on, ON_START, { slapMac: { ...LINKED, played: [PLAYED, refused] } })
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+    await clock.settle()
+
+    const slap = () => $.command.run({ command: 'slap', args: 'test', origin: COMPOSER, presentation: PRESENTATION })
+    expect((await slap()).text).toBe('SlapMac played its Woman pack.')
+    expect((await slap()).text).toBe('SlapMac: SlapMac played one a moment ago.')
+    expect(seen.runs).toContainEqual([BRIDGE, 'play', '--strength', '0.5'])
+    expect(seen.played).toEqual([])
+  })
+
+  test('the settings page and /slap status say SlapMac sets the sensitivity and the sound', async ($, on) => {
+    const { clock } = world(on, ON_START, { slapMac: LINKED })
+    await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+    await clock.settle()
+    await $.command.run({ command: 'slap', args: 'settings', origin: COMPOSER, presentation: PRESENTATION })
+
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...PANE, surface })
+      expect(await ui.find({ type: 'Text', text: /Set in SlapMac while it's listening \(0\.137 g\)/ })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: /Sound: SlapMac's Woman pack/ })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: /▮/ })).toBeUndefined()
+      await ui.unmount()
+    }
+    const run = (args: string) => $.command.run({ command: 'slap', args, origin: COMPOSER, presentation: PRESENTATION })
+    expect((await run('status')).text).toMatch(/Sensitivity: set in SlapMac \(0\.137 g\)/)
+    expect((await run('sensitivity 7')).text).toBe("Saved. SlapMac sets the sensitivity while it's listening, so this applies without it.")
+  })
+
+  test('a bridge from a newer SlapMac is left alone for the session', async ($, on) => {
+    const { clock, seen } = world(on, [{ events: [READY, LEADER, HARD_SLAP] }], {
+      slapMac: { status: [LISTENING], stream: [{ events: [{ ...BRIDGE_READY, protocol: 2 }] }] },
+    })
+    await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+    await clock.advance(31_000)
+
+    expect(seen.spawned).toHaveLength(2)
+    expect(seen.spawned[1]?.[0]).toMatch(HELPER)
+    expect(seen.played).toEqual(['sounds/bonk-hard.wav'])
+    expect(seen.runs.filter(argv => argv[0] === BRIDGE)).toHaveLength(1)
+  })
+
+  test('without SlapMac, it is looked for once and the mod carries on alone', async ($, on) => {
+    const { clock, seen } = world(on, ON_START)
+    await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+    await clock.advance(61_000)
+
+    expect(seen.runs.filter(argv => argv[0] === '/usr/bin/mdfind')).toHaveLength(1)
+    expect(seen.runs.filter(argv => argv[0] === '/usr/bin/pgrep').length).toBeGreaterThan(1)
+    expect(seen.spawned).toHaveLength(1)
   })
 })
 
@@ -581,6 +751,27 @@ describe('format', () => {
       expect(new Set(picks).size).toBe(VOICE_LINES.length - 1)
     }
     expect(new Set(randoms.map(random => pickOther(-1, VOICE_LINES.length, random))).size).toBe(VOICE_LINES.length)
+  })
+
+  test("SlapMac's answers read as a link, and anything else as none", async () => {
+    expect(linkFromStatus(says(LISTENING))).toEqual({ mode: 'linked', voices: 'Woman', threshold: 0.137 })
+    expect(linkFromStatus(says(paused('SlapMac is paused.')))).toEqual({ mode: 'idle', reason: 'SlapMac is paused.' })
+    expect(linkFromStatus(says(NOT_RUNNING))).toBeUndefined()
+    expect(linkFromStatus(says({ ...LISTENING, protocol: 2 }))).toBeUndefined()
+    expect(linkFromStatus('')).toBeUndefined()
+    expect(playRefusal(says(PLAYED))).toBeUndefined()
+    expect(playRefusal(says({ type: 'played', protocol: 1, ok: false, reason: 'Nope.' }))).toBe('Nope.')
+    expect(playRefusal(says(NOT_RUNNING))).toBe("SlapMac isn't running.")
+    expect(playRefusal('garbage')).toBe("SlapMac didn't answer.")
+  })
+
+  test('the bridge is looked for in the app folders, then where Spotlight found SlapMac', async () => {
+    expect(bridgeCandidates('/Users/me', '/Volumes/SlapMac/SlapMac.app\n/Applications/SlapMac.app\n')).toEqual([
+      BRIDGE,
+      '/Users/me/Applications/SlapMac.app/Contents/MacOS/slapmac-bridge',
+      '/Volumes/SlapMac/SlapMac.app/Contents/MacOS/slapmac-bridge',
+    ])
+    expect(describeSettings(DEFAULT_SETTINGS, { mode: 'legacy' })).toMatch(/SlapMac is running, so it plays the sounds\./)
   })
 
   test('strength reads as light, solid or hard', async () => {

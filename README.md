@@ -95,9 +95,11 @@ Changing the permission mode (what Shift+Tab does) can't be bound to a slap. Cla
 
 Everything slapmod does on your Mac, so there are no surprises:
 
-- **Runs** `native/slapsense`, the motion helper built from the Swift source in `helper/`, from the moment a Claude Code session starts until it ends. It reads the accelerometer and prints slap events, and it exits when Claude Code does.
+- **Runs** `native/slapsense`, the motion helper built from the Swift source in `helper/`, from the moment a Claude Code session starts until it ends, except while SlapMac is listening (see below). It reads the accelerometer and prints slap events, and it exits when Claude Code does.
 - **Runs** the slash command or **sends** the prompt you set for a slap or a double slap, and only those, in the session you last typed in.
-- **Runs** `/usr/bin/pgrep -x slapmac` every 30 seconds, to see whether SlapMac is running (when it is, slapmod stays quiet so you don't hear two sounds).
+- **Looks for SlapMac** when a session starts: whether `/Applications/SlapMac.app` or `~/Applications/SlapMac.app` holds `Contents/MacOS/slapmac-bridge`, and if neither does, it asks Spotlight with `/usr/bin/mdfind "kMDItemCFBundleIdentifier == 'com.tonnoz.slapmac'"`. Without SlapMac it looks again every 5 minutes.
+- **Runs** SlapMac's `slapmac-bridge status` every 15 seconds when SlapMac is installed, to see whether it's listening, and `/usr/bin/pgrep -x slapmac` when there's no bridge or no answer, to see whether an older SlapMac is running (it plays its own sounds, so slapmod stays quiet).
+- **Runs** `slapmac-bridge stream` in place of the motion helper while SlapMac is listening, and `slapmac-bridge play` when you test the sound then. The bridge is part of SlapMac, signed by its developer, and only talks to SlapMac over a socket on your Mac.
 - **Runs** `/bin/chmod +x` on the helper once, only if an install dropped its executable bit and the helper couldn't start.
 - **Runs** `/usr/bin/say` five times when a session starts, only if the sound is `voice`, to make the voice lines once in your temp folder. It reads them into memory and deletes the files with `/bin/rm`, so a slap plays a ready clip instead of waiting the best part of a second for the voice to load.
 - **Plays sounds** through Claude Code's sound support, which uses macOS `afplay`. It falls back to `say` for a voice line that isn't ready yet.
@@ -110,13 +112,19 @@ Everything slapmod does on your Mac, so there are no surprises:
 - **Tells Claude** one line per message at most, unless both actions are `off`: a note such as "the user slapped their MacBook 2 times since your last message, the hardest a solid one". It goes with your next message, or inside the prompt a slap sends.
 - **Sends nothing.** slapmod makes no network requests, the motion data never leaves your Mac, and it reads nothing from your conversations.
 
-## Made by the SlapMac dev
+## With SlapMac
 
-slapmod comes from the developer of [SlapMac](https://slapmac.com), the Mac app that talks back when you slap it. If SlapMac is running, slapmod stays quiet and lets it play the sounds, and the meter, the count and the Claude stuff keep working as before.
+slapmod comes from the developer of [SlapMac](https://slapmac.com), the Mac app that talks back when you slap it, and the two work together. When SlapMac 1.6.0 or later is installed, activated and listening, slapmod hands it the slap detection: SlapMac feels the slap and plays the pack you picked in it, and slapmod gets that same slap through SlapMac's `slapmac-bridge`, so the count, the meter and what happens to Claude match what you heard. While it does:
+
+- the meter marks where SlapMac starts counting a slap, and the settings page says the sensitivity is set in SlapMac;
+- Test sound plays SlapMac's pack;
+- slapmod's own sensitivity and sound still save, and apply whenever SlapMac isn't listening.
+
+When SlapMac is paused, has Slap Mode off, isn't activated or quits, slapmod goes straight back to its own helper and sounds, and picks SlapMac up again within 15 seconds of it listening. An older SlapMac without the bridge keeps slapmod quiet while it runs, as before.
 
 ## How it works
 
-The helper opens the accelerometer through IOKit HID, filters out gravity, finds slaps and prints one JSON line per event, and the mod reads those lines, draws the panel and plays the sounds. The binary in `native/` is built from `helper/` by `Scripts/build-helper.sh`, signed with a Developer ID and notarized by Apple, so you can read every line that goes into it.
+The helper opens the accelerometer through IOKit HID, filters out gravity, finds slaps and prints one JSON line per event, and the mod reads those lines, draws the panel and plays the sounds. SlapMac's bridge prints the same kind of lines, each tagged `"protocol": 1`, so the mod reads either one the same way. The binary in `native/` is built from `helper/` by `Scripts/build-helper.sh`, signed with a Developer ID and notarized by Apple, so you can read every line that goes into it.
 
 ## Building it yourself
 
