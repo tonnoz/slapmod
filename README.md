@@ -40,36 +40,64 @@ Install the slapmod plugin for Claude Code on this Mac.
 
 ## Using it
 
-Slap the laptop. The status line keeps count, and a toast tells you how hard it was. Type `/slap` to open the panel with the live motion meter, your slap count for this session and of all time, and a button to test the sound. `/slap` again closes it, and `/slap test` plays the sound without the panel.
+Slap the laptop. The status line keeps count, and a toast tells you how hard it was. Type `/slap` to open the panel with the live motion meter and your slap count for this session and of all time, and `/slap` again closes it.
+
+By default one slap stops Claude if it's in the middle of something, and your next message reaches Claude with a note saying you slapped it. Two quick slaps (within about 0.8 seconds) do that and then send Claude "That's not it. Step back and try a different approach.", so it changes course without you typing a word.
 
 A few things to try:
 
-1. Ask Claude for something big, and when it starts going the wrong way, slap the laptop. The turn stops, and your next message reaches Claude with a note saying you slapped it, so it knows to change course.
-2. Open `/slap` and tap the desk, type hard, close the lid halfway, and watch what the meter picks up.
-3. Set On slap to `tell` in `/config`, slap a few times while Claude works, and see how Claude takes it in its next reply.
+1. Ask Claude for something big, and when it starts going the wrong way, slap the laptop twice.
+2. Open `/slap settings`, tap the desk and watch the meter. A shake that crosses the `┃` counts as a slap, so press − or + until normal typing stays left of it and a real slap goes past it.
+3. Bind a double slap to `/compact` with `/slap double command /compact`, and smack the laptop when the context gets long.
 
 ## Settings
 
-Change these in `/config`:
+Type `/slap settings` for the settings page. It works in the terminal and in the desktop app:
 
-| Setting | Choices | What it does |
-| --- | --- | --- |
-| On slap | `stop` (default), `tell`, `off` | `stop` ends Claude's running turn and tells Claude why with your next message. `tell` lets the turn run and just mentions the slaps next time. `off` keeps it to sounds and the meter. |
-| Sound | `bonk` (default), `voice`, `off` | A cartoon bonk that gets meaner the harder you hit, or your Mac's own voice saying ouch, or nothing. |
-| Sensitivity | `low`, `medium` (default), `high` | How hard a slap has to be. Go `low` if bumping the desk counts, `high` if gentle taps don't. |
+- **Sensitivity:** a 1 to 10 dial over a live meter that shows where a slap starts counting.
+- **What a slap and a double slap do:** each can stop Claude, tell Claude, run a slash command, send a prompt, or do nothing, and there's a field for the command or the prompt.
+- **The sound.**
 
-If you have a few Claude sessions open, they all count the slap but only one of them plays the sound, so you don't get a choir. In `stop` mode, though, a slap stops every session that's in the middle of a turn, because it has no way to know which Claude you're mad at.
+Changes save straight away. Every setting is also a row in `/config`, and you can set them from the prompt:
+
+| Command | What it does |
+| --- | --- |
+| `/slap sensitivity 1-10` | 1 means only a real smack counts, 10 means a tap on the desk counts. 5 is the default. |
+| `/slap on <action> [text]` | What one slap does: `stop` (default), `tell`, `command /compact`, `prompt Try again, smaller this time.`, or `off`. |
+| `/slap double <action> [text]` | What two quick slaps do. The default sends the "try a different approach" prompt. |
+| `/slap sound bonk\|voice\|off` | A cartoon bonk that gets meaner the harder you hit, your Mac's own voice yelling one of five lines (Ow!, Hey!, Ouch! Rude., Okay, okay!, What did I do?), never the same one twice running, or nothing. |
+| `/slap status` | Shows how it's set up. |
+| `/slap test` | Plays the sound. |
+
+A few rules keep the command and prompt actions from going off by accident:
+
+- It takes at least a solid slap to run a command or send a prompt, so typing can't do it, even at a high sensitivity.
+- They run at most once every 5 seconds.
+- When one slap and a double slap both have actions, a single slap's command or prompt waits the 0.8 seconds to see whether a second slap is coming. Stopping Claude never waits.
+- A slap can't run `/slap` itself.
+- Be careful what you bind: a slap that runs `/clear` wipes your conversation just as if you'd typed it.
+
+If you have a few Claude sessions open, they all count the slap, but only one plays the sound, so you don't get a choir. A command or prompt only goes to the session you last typed in. Stopping is different: a slap stops every session that's in the middle of a turn, because it has no way to know which Claude you're mad at.
+
+Changing the permission mode (what Shift+Tab does) can't be bound to a slap. Claude Code only takes mode changes from your own keystrokes, which is a good thing when the alternative is a bump on the desk switching you into auto-accept.
 
 ## What it runs, stores and sends
 
 Everything slapmod does on your Mac, so there are no surprises:
 
 - **Runs** `native/slapsense`, the motion helper built from the Swift source in `helper/`, from the moment a Claude Code session starts until it ends. It reads the accelerometer and prints slap events, and it exits when Claude Code does.
+- **Runs** the slash command or **sends** the prompt you set for a slap or a double slap, and only those, in the session you last typed in.
 - **Runs** `/usr/bin/pgrep -x slapmac` every 30 seconds, to see whether SlapMac is running (when it is, slapmod stays quiet so you don't hear two sounds).
 - **Runs** `/bin/chmod +x` on the helper once, only if an install dropped its executable bit and the helper couldn't start.
-- **Plays sounds** through Claude Code's sound support, which uses macOS `afplay` for the bonks and `say` for the voice option.
-- **Stores** your all-time slap count in Claude Code's own plugin storage, and a small lock file, `slapmod-sound.lock`, in your user's temp folder, so only one session plays sounds.
-- **Tells Claude** one line per message at most, and only in `stop` or `tell` mode: a note added to your next message, such as "the user slapped their MacBook 2 times since your last message, the hardest a solid one".
+- **Runs** `/usr/bin/say` five times when a session starts, only if the sound is `voice`, to make the voice lines once in your temp folder. It reads them into memory and deletes the files with `/bin/rm`, so a slap plays a ready clip instead of waiting the best part of a second for the voice to load.
+- **Plays sounds** through Claude Code's sound support, which uses macOS `afplay`. It falls back to `say` for a voice line that isn't ready yet.
+- **Stores**, in Claude Code's own plugin storage:
+  - your all-time slap count;
+  - which session you last typed in;
+  - any setting still waiting to be saved.
+
+  It also keeps a small lock file, `slapmod-sound.lock`, in your user's temp folder, so only one session plays sounds.
+- **Tells Claude** one line per message at most, unless both actions are `off`: a note such as "the user slapped their MacBook 2 times since your last message, the hardest a solid one". It goes with your next message, or inside the prompt a slap sends.
 - **Sends nothing.** slapmod makes no network requests, the motion data never leaves your Mac, and it reads nothing from your conversations.
 
 ## Made by the SlapMac dev

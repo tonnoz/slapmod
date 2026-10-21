@@ -3,10 +3,11 @@ import Foundation
 /// Finds slaps in a stream of accelerometer samples, in g.
 ///
 /// A one-pole high-pass filter removes gravity and slow tilting and leaves the
-/// shake. A slap is a shake above both a fixed floor (the sensitivity) and a
+/// shake. A slap is a shake above both a fixed floor (the threshold) and a
 /// multiple of the recent noise. Its strength is the peak over a short window
-/// after it starts, and the detector then rests so one slap's ringing is not
-/// counted twice. Pure logic with no IOKit, so tests can feed it samples.
+/// after it starts. The detector then rests until the shake has died down to
+/// half the threshold, so one slap's ringing is not counted twice while a quick
+/// double slap still is. Pure logic with no IOKit, so tests can feed it samples.
 public struct SlapDetector {
     public enum Sensitivity: String, CaseIterable, Sendable {
         case low, medium, high
@@ -25,7 +26,7 @@ public struct SlapDetector {
         /// The peak shake, in g.
         public let peak: Float
         /// From 0 (barely a slap) to 1 (a hard one), on one scale for every
-        /// sensitivity.
+        /// threshold.
         public let strength: Float
     }
 
@@ -35,41 +36,57 @@ public struct SlapDetector {
     private static let noiseRatio: Float = 4
     private static let warmup: Double = 0.3
     private static let peakWindow: Double = 0.05
-    private static let restAfterSlap: Double = 0.4
+    private static let shortestRest: Double = 0.12
+    private static let longestRest: Double = 0.5
+    private static let rearmFraction: Float = 0.5
+    private static let envelopeDecay: Double = 0.02
     private static let strengthFloor: Float = 0.03
     private static let strengthCeiling: Float = 2.0
 
-    public let sensitivity: Sensitivity
+    /// The smallest shake, in g, that can count as a slap.
+    public let minimumPeak: Float
     /// The latest shake, in g, with gravity removed.
     public private(set) var magnitude: Float = 0
 
     private enum Phase {
         case idle
         case measuring(until: Double, peak: Float)
-        case resting(until: Double)
+        case resting(rearmAfter: Double, rearmBy: Double)
     }
 
     private var previous: SIMD3<Float>?
+    private var previousTime: Double = 0
+    /// The shake's recent peak, so a ringing case that swings through zero
+    /// still reads as ringing.
+    private var envelope: Float = 0
     private var filtered = SIMD3<Float>(repeating: 0)
     private var noiseFloor = initialNoiseFloor
     private var warmUntil: Double?
     private var phase = Phase.idle
 
+    public init(minimumPeak: Float) {
+        self.minimumPeak = minimumPeak
+    }
+
     public init(sensitivity: Sensitivity = .medium) {
-        self.sensitivity = sensitivity
+        self.init(minimumPeak: sensitivity.minimumPeak)
     }
 
     /// Feeds one sample taken at `time` seconds; returns a slap once its peak
     /// window has passed.
     public mutating func process(x: Float, y: Float, z: Float, time: Double) -> Slap? {
         let sample = SIMD3(x, y, z)
-        defer { previous = sample }
+        defer {
+            previous = sample
+            previousTime = time
+        }
         guard let previous else {
             warmUntil = time + Self.warmup
             return nil
         }
         filtered = Self.highPassAlpha * (filtered + sample - previous)
         magnitude = (filtered * filtered).sum().squareRoot()
+        envelope = max(magnitude, envelope * Float(exp(-(time - previousTime) / Self.envelopeDecay)))
 
         if let warmUntil, time < warmUntil {
             settleNoise()
@@ -89,16 +106,17 @@ public struct SlapDetector {
                 phase = .measuring(until: until, peak: peak)
                 return nil
             }
-            phase = .resting(until: time + Self.restAfterSlap)
+            phase = .resting(rearmAfter: time + Self.shortestRest, rearmBy: time + Self.longestRest)
             return Slap(peak: peak, strength: Self.strength(of: peak))
-        case let .resting(until):
-            if time >= until { phase = .idle }
+        case let .resting(rearmAfter, rearmBy):
+            let hasCalmed = time >= rearmAfter && envelope < threshold * Self.rearmFraction
+            if hasCalmed || time >= rearmBy { phase = .idle }
             return nil
         }
     }
 
     private var threshold: Float {
-        max(sensitivity.minimumPeak, noiseFloor * Self.noiseRatio)
+        max(minimumPeak, noiseFloor * Self.noiseRatio)
     }
 
     private mutating func settleNoise() {
